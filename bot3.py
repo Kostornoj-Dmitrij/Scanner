@@ -1,13 +1,16 @@
+from PIL import Image
+import os
 from io import BytesIO
+from fpdf import FPDF
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 import telebot
 from telebot import types
 import subprocess
-from img_formatter import process_image
+import formatter_image
 import tempfile
 import requests
-
+import zipfile
 
 TOKEN = '6425319786:AAEScENXwLGMGqKdhD3xiJwxk_DgK-aos-8'
 bot = telebot.TeleBot(TOKEN)
@@ -16,6 +19,24 @@ user_balance = {'user_id': 0}
 user_data = {}
 form = 'pdf'
 file_path = ''
+
+current_message_number = 1
+output_format = None
+
+def create_pdf_from_image(image_path, pdf_path):
+    image = Image.open(image_path)
+    pdf = FPDF(unit="pt", format=[image.width, image.height])
+    pdf.add_page()
+    pdf.image(image_path, 0, 0, image.width, image.height)  # Размеры страницы A4
+    pdf.output(pdf_path, "F")
+
+
+def create_archive(file_list, archive_name, folder_path):
+    with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file in file_list:
+            arcname = os.path.relpath(file, folder_path)
+            zipf.write(file, arcname)
+
 
 def save_image_from_telegram(file_path, file_name):
     file_url = f'https://api.telegram.org/file/bot{TOKEN}/{file_path}'
@@ -27,22 +48,42 @@ def save_image_from_telegram(file_path, file_name):
     else:
         print('Не удалось загрузить изображение')
 
-def create_res_file(user_id, form):
 
+
+def process_images(user_id, form, folder_path):
     true_suffix = '.' + form
+    archive_name = "result.zip"
     if form == 'pdf':
-        temp_pdf_file = BytesIO()
-        pdf_canvas = canvas.Canvas(temp_pdf_file, pagesize=letter)
-        pdf_canvas.drawString(100, 100, "Файл результат")
-        pdf_canvas.save()
-        temp_pdf_file.seek(0)
-        temp_pdf_file.name = 'result.pdf'
-        bot.send_document(user_id, temp_pdf_file)
+        pdf_list = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if file.endswith(".jpg") or file.endswith(".png"):
+                    image_path = os.path.join(root, file)
+                    formatter_image.process_image(image_path)
+                    pdf_path = os.path.join(root, file.replace(".jpg", ".pdf").replace(".png", ".pdf"))
+                    create_pdf_from_image(image_path, pdf_path)
+                    pdf_list.append(pdf_path)
+
+        create_archive(pdf_list, archive_name, folder_path)
+
+        with open(archive_name, "rb") as archive_file:
+            bot.send_document(user_id, archive_file)
     else:
-        with tempfile.NamedTemporaryFile(suffix=true_suffix, delete=False, mode='w', encoding='utf-8') as temp_file:
-            temp_file.write('Итоговый файл')
-        with open(temp_file.name, 'rb') as file:
-            bot.send_document(user_id, file)
+        file_list = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if file.endswith(".jpg") or file.endswith(".png"):
+                    with tempfile.NamedTemporaryFile(suffix=true_suffix, delete=False, mode='w', encoding='utf-8') as temp_file:
+                        temp_file.write('Итоговый файл')
+                    file_list.append(temp_file.name)
+        temp_path = os.path.dirname(tempfile.NamedTemporaryFile().name)
+        create_archive(file_list, archive_name, temp_path)
+
+        with open(archive_name, "rb") as archive_file:
+            bot.send_document(user_id, archive_file)
+
+    for file in os.listdir(folder_path):
+        os.remove(os.path.join(folder_path, file))
 
 
 @bot.message_handler(commands=['start'])
@@ -71,6 +112,13 @@ def handle_text(message):
         show_bot_info(user_id)
     elif message.text == '/stat':
         show_statistics(user_id)
+    elif message.text == '/done':
+        keyboard = types.InlineKeyboardMarkup()
+        keyboard.row(types.InlineKeyboardButton('pdf', callback_data='pdf'),
+                     types.InlineKeyboardButton('txt', callback_data='txt'),
+                     types.InlineKeyboardButton('doc', callback_data='doc'),
+                     types.InlineKeyboardButton('xml', callback_data='xml'))
+        bot.send_message(user_id, "Выберите итоговый формат файла-результата:", reply_markup=keyboard)
     else:
         bot.send_message(user_id, "Извините, не могу обработать этот запрос.")
 
@@ -139,9 +187,9 @@ def callback_inline(call):
     elif call.data == 'support':
         show_support_options(call.message.chat.id)
     elif call.data == 'start_sending':
-        bot.send_message(user_id, "Отправьте фото")
+        bot.send_message(user_id, "Отправьте все фото. Когда закончите используйте команду /done (напишите в чат)")
     elif call.data in ['pdf', 'txt', 'doc', 'xml']:
-        create_res_file(user_id, call.data)
+        process_images(user_id, call.data, 'D:\Scanner\images')
     else:
         bot.answer_callback_query(call.id, text="Ошибка!")
 
@@ -149,25 +197,27 @@ def callback_inline(call):
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_content(message):
     user_id = message.chat.id
-    cost = float(0.2)
+    if message.photo:
+        file_id = message.photo[0].file_id
+        file_info = bot.get_file(file_id)
+        file_path = file_info.file_path
+        downloaded_file = bot.download_file(file_path)
+        file_extension = file_path.split('.')[-1]
+        file_name = f'{user_id}_{file_id}.{file_extension}'
 
-    if user_balance[user_id] < cost:
-        bot.send_message(user_id, "На балансе недостаточно средств!")
-        show_payment_options(user_id)
-    file_id = None
-    if (message.document and message.document.mime_type in ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']):
+        with open(os.path.join('D:\Scanner\images', file_name), 'wb') as new_file:
+            new_file.write(downloaded_file)
+
+    elif (message.document and message.document.mime_type in ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']):
         file_id = message.document.file_id
         file_info = bot.get_file(file_id)
         file_path = file_info.file_path
-        save_image_from_telegram(file_path, 'result_img.jpg')
-        keyboard = types.InlineKeyboardMarkup()
-        keyboard.row(types.InlineKeyboardButton('pdf', callback_data='pdf'),
-                     types.InlineKeyboardButton('txt', callback_data='txt'),
-                     types.InlineKeyboardButton('doc', callback_data='doc'),
-                     types.InlineKeyboardButton('xml', callback_data='xml'))
-        bot.send_message(user_id, "Выберите итоговый формат файла-результата:", reply_markup=keyboard)
+        downloaded_file = bot.download_file(file_path)
+        file_extension = file_path.split('.')[-1]
+        file_name = f'{user_id}_{file_id}.{file_extension}'
 
-        user_balance[user_id] -= cost
+        with open(os.path.join('D:\Scanner\images', file_name), 'wb') as new_file:
+            new_file.write(downloaded_file)
     else:
         bot.send_message(user_id, "Извините, не умею работать с таким форматом данных.")
         return
