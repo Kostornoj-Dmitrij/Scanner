@@ -12,6 +12,13 @@ import tempfile
 import requests
 import zipfile
 
+import uuid
+
+from yookassa import Configuration, Payment
+
+Configuration.account_id = 381764678
+Configuration.secret_key = 72897
+
 TOKEN = '6425319786:AAEScENXwLGMGqKdhD3xiJwxk_DgK-aos-8'
 bot = telebot.TeleBot(TOKEN)
 
@@ -19,9 +26,27 @@ user_balance = {'user_id': 0}
 user_data = {}
 form = 'pdf'
 file_path = ''
-
+cost = 0.2
 current_message_number = 1
 output_format = None
+images_folder = 'D:/Scanner/images'
+
+def payment_create(value):
+    value = value+'.00'
+    payment = Payment.create({
+        "amount": {
+            "value": value,
+            "currency": "RUB"
+        },
+        "confirmation": {
+            "type": "redirect",
+            "return_url": "https://xn--80affa3aj0al.xn--80asehdb/#@Smart_Scanner_bot"
+        },
+        "capture": True,
+        "description": "Заказ"
+    }, uuid.uuid4())
+
+
 
 def create_pdf_from_image(image_path, pdf_path):
     image = Image.open(image_path)
@@ -59,10 +84,15 @@ def process_images(user_id, form, folder_path):
             for file in files:
                 if file.endswith(".jpg") or file.endswith(".png"):
                     image_path = os.path.join(root, file)
-                    formatter_image.process_image(image_path)
+                    try:
+                        formatter_image.process_image(image_path)
+                    except:
+                        pass
+
                     pdf_path = os.path.join(root, file.replace(".jpg", ".pdf").replace(".png", ".pdf"))
                     create_pdf_from_image(image_path, pdf_path)
                     pdf_list.append(pdf_path)
+                user_balance[user_id] = round(user_balance[user_id] - cost, 2)
 
         create_archive(pdf_list, archive_name, folder_path)
 
@@ -90,7 +120,7 @@ def process_images(user_id, form, folder_path):
 def start(message):
     user_id = message.chat.id
     if user_id not in user_balance:
-        user_balance[user_id] = 1000
+        user_balance[user_id] = float(1000)
 
     keyboard = types.InlineKeyboardMarkup()
 
@@ -172,7 +202,7 @@ def callback_inline(call):
     global files
     if call.data in ['100', '300', '500', '1000', '1500', '2000']:
 
-        user_balance[user_id] += float(call.data)
+        user_balance[user_id] = round(user_balance[user_id] + float(call.data), 2)
         bot.answer_callback_query(call.id, text=f"Счет успешно пополнен на {call.data} руб")
         bot.send_message(user_id, "Баланс успешно пополнен!")
 
@@ -197,6 +227,7 @@ def callback_inline(call):
 @bot.message_handler(content_types=['photo', 'document'])
 def handle_content(message):
     user_id = message.chat.id
+
     if message.photo:
         file_id = message.photo[0].file_id
         file_info = bot.get_file(file_id)
@@ -205,7 +236,7 @@ def handle_content(message):
         file_extension = file_path.split('.')[-1]
         file_name = f'{user_id}_{file_id}.{file_extension}'
 
-        with open(os.path.join('D:\Scanner\images', file_name), 'wb') as new_file:
+        with open(os.path.join(images_folder, file_name), 'wb') as new_file:
             new_file.write(downloaded_file)
 
     elif (message.document and message.document.mime_type in ['application/pdf', 'image/png', 'image/jpeg', 'image/jpg']):
@@ -216,10 +247,19 @@ def handle_content(message):
         file_extension = file_path.split('.')[-1]
         file_name = f'{user_id}_{file_id}.{file_extension}'
 
-        with open(os.path.join('D:\Scanner\images', file_name), 'wb') as new_file:
+        with open(os.path.join(images_folder, file_name), 'wb') as new_file:
             new_file.write(downloaded_file)
+    elif message.document and message.document.mime_type == 'application/zip':
+        file_id = message.document.file_id
+        file_info = bot.get_file(file_id)
+        file_path = file_info.file_path
+        downloaded_file = bot.download_file(file_path)
+
+        zip_data = BytesIO(downloaded_file)
+
+        with zipfile.ZipFile(zip_data, 'r') as zip_ref:
+            zip_ref.extractall(images_folder)
     else:
         bot.send_message(user_id, "Извините, не умею работать с таким форматом данных.")
         return
-
 bot.polling()
