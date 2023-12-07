@@ -20,8 +20,9 @@ Configuration.account_id = 381764678
 Configuration.secret_key = 72897
 
 TOKEN = '6425319786:AAEScENXwLGMGqKdhD3xiJwxk_DgK-aos-8'
-bot = telebot.TeleBot(TOKEN)
 
+bot = telebot.TeleBot(TOKEN)
+bot.set_webhook()
 user_balance = {'user_id': 0}
 user_data = {}
 form = 'pdf'
