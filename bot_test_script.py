@@ -11,6 +11,7 @@ import formatter_image
 import tempfile
 import requests
 import zipfile
+from aiogram.types.message import ContentType
 
 import uuid
 
@@ -31,7 +32,6 @@ cost = 0.2
 current_message_number = 1
 output_format = None
 images_folder = 'D:/Scanner/images'
-
 
 
 def create_pdf_from_image(image_path, pdf_path):
@@ -58,7 +58,6 @@ def save_image_from_telegram(file_path, file_name):
         print(f'Изображение успешно сохранено как {file_name}')
     else:
         print('Не удалось загрузить изображение')
-
 
 
 def process_images(user_id, form, folder_path):
@@ -114,6 +113,7 @@ def start(message):
                  types.InlineKeyboardButton('Начать работу', callback_data='start_sending'))
 
     bot.send_message(user_id, "Привет! Добро пожаловать в бота.", reply_markup=keyboard)
+
 
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
@@ -182,15 +182,37 @@ def show_statistics(user_id):
     bot.send_message(user_id, "Статистика...", reply_markup=keyboard)
 
 
+@bot.shipping_query_handler(func=lambda query: True)
+def shipping(shipping_query):
+    print(shipping_query)
+    bot.answer_shipping_query(shipping_query.id, ok=True,
+                              error_message='Oh, seems like our Dog couriers are having a lunch right now. Try again later!')
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def checkout_query(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Aliens tried to steal your card's CVV, but we successfully protected your credentials,"
+                                                                                " try to pay again in a few minutes, we need a small rest.")
+    print(pre_checkout_query)
+
+@bot.message_handler(content_types=['successful_payment'])
+def process_successful_payment(message):
+    print(1)
+    if message.successful_payment.invoice_payload == 'pay_add':
+        bot.send_message(message.from_user.id, 'Вы пополнили баланс!')
+    else:
+        bot.send_message(message.from_user.id, 'Произошла ошибка!')
+
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     user_id = call.message.chat.id
     global files
     if call.data in ['100', '300', '500', '1000', '1500', '2000']:
-        await bot.send_invoice(chat_id=call.from_user.id, title='Пополнение баланса', description='', payload='pay_add', provider_token=YOOTOKEN, currency='RUB', start_parameter='test_bot',  prices=[{'label': 'Руб', 'amount':int(call.data)*100}] )
+        prices = [types.LabeledPrice(label='Руб', amount= int(call.data)*100)]
+
+        invoice = bot.send_invoice(chat_id=call.from_user.id, title='Пополнение баланса', description='payment', invoice_payload='pay_add', provider_token=YOOTOKEN, currency='RUB', start_parameter='test_bot',  prices=prices)
+
         user_balance[user_id] = round(user_balance[user_id] + float(call.data), 2)
-        bot.answer_callback_query(call.id, text=f"Счет успешно пополнен на {call.data} руб")
-        bot.send_message(user_id, "Баланс успешно пополнен!")
 
     elif call.data == 'profile':
         show_profile(call.message.chat.id)
@@ -248,4 +270,8 @@ def handle_content(message):
     else:
         bot.send_message(user_id, "Извините, не умею работать с таким форматом данных.")
         return
+
+
+
+
 bot.polling()
