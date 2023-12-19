@@ -1,0 +1,18 @@
+Скрипт бота с вызовом системы оплаты находится в "bot_test_script"
+В методе callback_inline в качестве реакции на нажатие кнопки выбора суммы пополнения баланса мы реализуем send_invoice,
+чтобы бот отправлял клиенту счёт на оплату, 
+токен сервиса для оплаты находится в переменной YOOTOKEN в начале кода(Сбербанк в данном случае)
+Теперь, когда пользователь заполнит данные о своей карте и подтвердит платёж, бот должен принять объект PreCheckoutQuery и
+ответить на запрос вызвав метод answerPreCheckoutQuery. 
+Реализуем это с помощью метода: 
+
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def checkout(pre_checkout_query):
+    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+    
+Теперь в методе got_payment реализуем реакцию на успешный платёж, а именно пополнение баланса на поступившую сумму.
+@bot.message_handler(content_types=['successful_payment'])
+def got_payment(message):
+    user_id = message.chat.id
+    user_balance[user_id] = round(user_balance[user_id] + float(message.successful_payment.total_amount/100), 2)
+    bot.send_message(message.from_user.id, 'Вы пополнили баланс на {} {}!'.format(message.successful_payment.total_amount/100, message.successful_payment.currency))
