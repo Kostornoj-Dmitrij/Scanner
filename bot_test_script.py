@@ -1,5 +1,6 @@
 from PIL import Image
 import os
+import requests
 from io import BytesIO
 from fpdf import FPDF
 from reportlab.pdfgen import canvas
@@ -11,19 +12,17 @@ import formatter_image
 import tempfile
 import requests
 import zipfile
-from aiogram.types.message import ContentType
-
+import time
 import uuid
 
 from yookassa import Configuration, Payment
 
 Configuration.account_id = 381764678
-Configuration.secret_key = 72897
+Configuration.secret_key = 27583
 
 TOKEN = '6425319786:AAEScENXwLGMGqKdhD3xiJwxk_DgK-aos-8'
-YOOTOKEN = '381764678:TEST:72897'
+YOOTOKEN = '401643678:TEST:9a04d188-07be-44de-8367-d4a0fce5a908'
 bot = telebot.TeleBot(TOKEN)
-bot.set_webhook()
 user_balance = {'user_id': 0}
 user_data = {}
 form = 'pdf'
@@ -38,7 +37,7 @@ def create_pdf_from_image(image_path, pdf_path):
     image = Image.open(image_path)
     pdf = FPDF(unit="pt", format=[image.width, image.height])
     pdf.add_page()
-    pdf.image(image_path, 0, 0, image.width, image.height)  # Размеры страницы A4
+    pdf.image(image_path, 0, 0, image.width, image.height)
     pdf.output(pdf_path, "F")
 
 
@@ -182,37 +181,17 @@ def show_statistics(user_id):
     bot.send_message(user_id, "Статистика...", reply_markup=keyboard)
 
 
-@bot.shipping_query_handler(func=lambda query: True)
-def shipping(shipping_query):
-    print(shipping_query)
-    bot.answer_shipping_query(shipping_query.id, ok=True,
-                              error_message='Oh, seems like our Dog couriers are having a lunch right now. Try again later!')
-
-@bot.pre_checkout_query_handler(func=lambda query: True)
-def checkout_query(pre_checkout_query):
-    bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True, error_message="Aliens tried to steal your card's CVV, but we successfully protected your credentials,"
-                                                                                " try to pay again in a few minutes, we need a small rest.")
-    print(pre_checkout_query)
-
-@bot.message_handler(content_types=['successful_payment'])
-def process_successful_payment(message):
-    print(1)
-    if message.successful_payment.invoice_payload == 'pay_add':
-        bot.send_message(message.from_user.id, 'Вы пополнили баланс!')
-    else:
-        bot.send_message(message.from_user.id, 'Произошла ошибка!')
-
-
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     user_id = call.message.chat.id
     global files
     if call.data in ['100', '300', '500', '1000', '1500', '2000']:
-        prices = [types.LabeledPrice(label='Руб', amount= int(call.data)*100)]
+        prices = [types.LabeledPrice(label='Руб', amount = int(call.data)*100)]
 
-        invoice = bot.send_invoice(chat_id=call.from_user.id, title='Пополнение баланса', description='payment', invoice_payload='pay_add', provider_token=YOOTOKEN, currency='RUB', start_parameter='test_bot',  prices=prices)
-
-        user_balance[user_id] = round(user_balance[user_id] + float(call.data), 2)
+        bot.send_invoice(call.message.chat.id, title='Пополнение баланса',
+                         description='payment', invoice_payload='pay_add',
+                         provider_token=YOOTOKEN, currency='RUB',
+                         start_parameter='test_bot', prices=prices)
 
     elif call.data == 'profile':
         show_profile(call.message.chat.id)
@@ -230,6 +209,18 @@ def callback_inline(call):
         process_images(user_id, call.data, 'D:\Scanner\images')
     else:
         bot.answer_callback_query(call.id, text="Ошибка!")
+
+
+@bot.pre_checkout_query_handler(lambda query: True)
+async def checkout(pre_checkout_query):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True,
+                                  error_message="Aliens tried to steal your card's CVV, but we successfully protected your credentials,"
+                                                " try to pay again in a few minutes, we need a small rest.")
+
+
+@bot.message_handler(content_types=['successful_payment'])
+def got_payment(message):
+    bot.send_message(message.from_user.id, 'Вы пополнили баланс!')
 
 
 @bot.message_handler(content_types=['photo', 'document'])
@@ -272,6 +263,4 @@ def handle_content(message):
         return
 
 
-
-
-bot.polling()
+bot.infinity_polling()
