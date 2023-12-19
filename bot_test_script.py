@@ -114,6 +114,7 @@ def start(message):
     bot.send_message(user_id, "Привет! Добро пожаловать в бота.", reply_markup=keyboard)
 
 
+
 @bot.message_handler(func=lambda message: True)
 def handle_text(message):
     user_id = message.chat.id
