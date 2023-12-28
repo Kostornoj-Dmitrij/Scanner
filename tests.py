@@ -381,7 +381,6 @@ class MyTestCase(unittest.TestCase):
         diff = ImageChops.difference(Image.frombytes("RGB", img1.size, img1.samples), img2)
         self.assertEqual(diff.getbbox(), None)
 
-
     def test_compare_low_resolution_xls(self):
         xls_xlsument = "test_low_resolution_image.xls"
         xls = fitz.open(xls_xlsument)
