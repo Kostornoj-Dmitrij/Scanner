@@ -206,22 +206,31 @@ def callback_inline(call):
         show_support_options(call.message.chat.id)
     elif call.data == 'start_sending':
         bot.send_message(user_id, "Отправьте все фото. Когда закончите используйте команду /done (напишите в чат)")
-    elif call.data in ['pdf', 'txt', 'doc', 'xml']:
+    elif call.data in ['pdf', 'doc']:
         process_images(user_id, call.data, 'D:\Scanner\images')
     else:
         bot.answer_callback_query(call.id, text="Ошибка!")
 
 
-@bot.pre_checkout_query_handler(lambda query: True)
-async def checkout(pre_checkout_query):
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True,
-                                  error_message="Aliens tried to steal your card's CVV, but we successfully protected your credentials,"
-                                                " try to pay again in a few minutes, we need a small rest.")
+@bot.pre_checkout_query_handler(func=lambda query: True)
+def checkout(pre_checkout_query):
+    response = requests.post('https://api.provider.com/confirm_payment', data={
+        'token': YOOTOKEN,
+        'payment_id': pre_checkout_query.id
+    })
+    if response.status_code == 200:
+        bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+    else:
+        bot.answer_pre_checkout_query(pre_checkout_query.id, ok=False, error_message="Ошибка обработки оплаты")
 
 
 @bot.message_handler(content_types=['successful_payment'])
 def got_payment(message):
-    bot.send_message(message.from_user.id, 'Вы пополнили баланс!')
+    user_id = message.chat.id
+    user_balance[user_id] = round(user_balance[user_id] + float(message.successful_payment.total_amount/100), 2)
+    bot.send_message(message.from_user.id, 'Вы пополнили баланс на {} {}!'.format(message.successful_payment.total_amount/100, message.successful_payment.currency))
+
+
 
 
 @bot.message_handler(content_types=['photo', 'document'])
@@ -264,4 +273,4 @@ def handle_content(message):
         return
 
 
-bot.infinity_polling()
+bot.infinity_polling(skip_pending = True)
