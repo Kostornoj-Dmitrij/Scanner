@@ -82,6 +82,7 @@ def process_images(user_id, form, folder_path):
 
         with open(archive_name, "rb") as archive_file:
             bot.send_document(user_id, archive_file)
+
     else:
         file_list = []
         for root, dirs, files in os.walk(folder_path):
